@@ -265,6 +265,25 @@ void vid_cfg_file_write(
 	bstone::TextWriter& text_writer);
 
 
+using VidRendererKinds = std::vector<bstone::RendererKind>;
+
+const VidRendererKinds& vid_renderer_kinds_get_available();
+
+
+struct VidWindowSize
+{
+	bool is_current_;
+	bool is_custom_;
+
+	int width_;
+	int height_;
+}; // VidWindowSize
+
+using VidWindowSizes = std::vector<VidWindowSize>;
+
+const VidWindowSizes& vid_window_size_get_list();
+
+
 void VL_RefreshScreen();
 
 int vl_get_offset(

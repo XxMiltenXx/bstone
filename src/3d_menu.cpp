@@ -128,6 +128,7 @@ enum sw2_labels
 
 enum MenuVideoLables
 {
+	mvl_mode,
 	mvl_widescreen,
 	mvl_stretch_ui,
 };
@@ -415,7 +416,8 @@ CP_iteminfo NewItems = {NM_X, NM_Y, 4, 1, 0, 16, {60, -2, 105, 16, 1}};
 CP_iteminfo SwitchItems = {MENU_X, 0, 0, 0, 0, 9, {87, -1, 132, 7, 1}};
 
 // BBi
-CP_iteminfo video_items = {MENU_X, MENU_Y + 30, 2, 0, 0, 9, {77, -1, 154, 7, 1}};
+CP_iteminfo video_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
+CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
 CP_iteminfo switches2_items = {MENU_X, MENU_Y + 30, 2, 0, 0, 9, {87, -1, 132, 7, 1}};
 // BBi
 
@@ -541,7 +543,19 @@ CP_itemtype CusMenu[] = {
 };
 
 // BBi
-CP_itemtype video_menu[] = {
+CP_itemtype video_mode_menu[] =
+{
+	{AT_ENABLED, "RENDERER", nullptr},
+	{AT_DISABLED, "", nullptr},
+	{AT_ENABLED, "APPLY", nullptr},
+};
+
+void video_menu_mode_routine(
+	const std::int16_t index);
+
+CP_itemtype video_menu[] =
+{
+	{AT_ENABLED, "MODE", video_menu_mode_routine},
 	{AT_ENABLED, "WIDESCREEN", nullptr},
 	{AT_ENABLED, "STRETCH UI", nullptr},
 };
@@ -3702,6 +3716,34 @@ std::int16_t HandleMenu(
 			TicDelay(20);
 			break;
 
+			// Carousel (left).
+			//
+			case dir_West:
+			{
+				auto routine = items[which].carousel_func_;
+
+				if (routine)
+				{
+					routine(which, true, false);
+				}
+
+				break;
+			}
+
+			// Carousel (right).
+			//
+			case dir_East:
+			{
+				auto routine = items[which].carousel_func_;
+
+				if (routine)
+				{
+					routine(which, false, true);
+				}
+
+				break;
+			}
+
 		default:
 			break;
 		}
@@ -4585,6 +4627,7 @@ void draw_video_descriptions(
 	std::int16_t which)
 {
 	const char* instructions[] = {
+		"CHANGES THE VIDEO MODE",
 		"TOGGLES BETWEEN WIDESCREEN AND 4X3 MODES",
 		"TOGGLES STRETCHING OF USER INTERFACE",
 	};
@@ -4646,6 +4689,9 @@ void video_draw_switch(
 
 			switch (i)
 			{
+				case mvl_mode:
+					continue;
+
 			case mvl_widescreen:
 				if (configuration.is_widescreen_)
 				{
@@ -4672,6 +4718,172 @@ void video_draw_switch(
 	}
 
 	draw_video_descriptions(which);
+}
+
+///
+void draw_carousel(
+	CP_iteminfo* item_i,
+	CP_itemtype* items)
+{
+	const int which = item_i->curpos;
+
+	WindowX = PrintX = item_i->x + item_i->indent;
+	WindowY = PrintY = item_i->y;
+
+	WindowW = 320;
+	WindowH = 200;
+
+	for (int i = 0; i < item_i->amount; i++)
+	{
+		SetTextColor(items + i, which == i);
+		ShadowPrint((items + i)->string.c_str(), WindowX, item_i->y + i * item_i->y_spacing);
+	}
+}
+
+
+int menu_video_mode_renderer_index_;
+VidRendererKinds menu_video_mode_renderer_kinds_;
+
+void draw_video_mode_descriptions(
+	std::int16_t which)
+{
+	static const char* instructions[] =
+	{
+		"SELECTS THE RENDERER",
+		"",
+		"APPLIES THE MODE",
+	};
+
+	::fontnumber = 2;
+
+	::WindowX = 48;
+	::WindowY = 144;
+	::WindowW = 236;
+	::WindowH = 8;
+
+	::VWB_Bar(
+		::WindowX,
+		::WindowY - 1,
+		::WindowW,
+		::WindowH,
+		::menu_background_color);
+
+	::SETFONTCOLOR(TERM_SHADOW_COLOR, TERM_BACK_COLOR);
+	::US_PrintCentered(instructions[which]);
+
+	--::WindowX;
+	--::WindowY;
+
+	SETFONTCOLOR(INSTRUCTIONS_TEXT_COLOR, TERM_BACK_COLOR);
+	::US_PrintCentered(instructions[which]);
+}
+
+void video_mode_draw_menu()
+{
+	::CA_CacheScreen(BACKGROUND_SCREENPIC);
+	::ClearMScreen();
+	::DrawMenuTitle("VIDEO MODE");
+	::DrawInstructions(IT_STANDARD);
+	::DrawMenu(&video_mode_items, video_mode_menu);
+	VW_UpdateScreen();
+
+
+	menu_video_mode_renderer_kinds_ = vid_renderer_kinds_get_available();
+
+	if (menu_video_mode_renderer_kinds_.empty())
+	{
+		::Quit("Empty renderer kind list.");
+	}
+
+	const auto& vid_cfg = vid_cfg_get();
+
+	const auto renderer_kind_it = std::find(
+		menu_video_mode_renderer_kinds_.cbegin(),
+		menu_video_mode_renderer_kinds_.cend(),
+		vid_cfg.renderer_kind_
+	);
+
+	if (renderer_kind_it == menu_video_mode_renderer_kinds_.cend())
+	{
+		menu_video_mode_renderer_index_ = 0;
+	}
+	else
+	{
+		menu_video_mode_renderer_index_ = static_cast<int>(
+			renderer_kind_it - menu_video_mode_renderer_kinds_.cbegin());
+	}
+}
+
+void video_mode_draw_switch(
+	std::int16_t which)
+{
+	std::uint16_t Shape;
+
+	auto& configuration = ::vid_cfg_get();
+
+	for (int i = 0; i < video_items.amount; i++)
+	{
+		if (video_mode_menu[i].string[0])
+		{
+			Shape = ::C_NOTSELECTEDPIC;
+
+			if (video_items.cursor.on)
+			{
+				if (i == which)
+				{
+					Shape += 2;
+				}
+			}
+
+			switch (i)
+			{
+				default:
+					continue;
+			}
+
+			::VWB_DrawPic(
+				video_items.x - 16,
+				video_items.y + (i * video_items.y_spacing) - 1,
+				Shape);
+		}
+	}
+
+	draw_video_mode_descriptions(which);
+}
+
+void video_menu_mode_renderer_carousel(
+	const int item_index,
+	const bool is_left,
+	const bool is_right)
+{
+}
+
+void video_menu_mode_routine(
+	const std::int16_t)
+{
+	std::int16_t which;
+
+	::CA_CacheScreen(BACKGROUND_SCREENPIC);
+	::video_mode_draw_menu();
+	::MenuFadeIn();
+	::WaitKeyUp();
+
+	auto& configuration = ::vid_cfg_get();
+
+	video_mode_menu[0].carousel_func_ = ::video_menu_mode_renderer_carousel;
+
+	do
+	{
+		which = ::HandleMenu(&video_mode_items, video_mode_menu, video_mode_draw_switch);
+
+		switch (which)
+		{
+			default:
+				break;
+		}
+	} while (which >= 0);
+
+	::MenuFadeOut();
 }
 
 void cp_video(

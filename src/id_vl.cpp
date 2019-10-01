@@ -184,13 +184,12 @@ using SdlPalette = std::array<std::uint32_t, bstone::RgbPalette::get_max_color_c
 VgaBuffer vid_ui_buffer_;
 UiMaskBuffer vid_mask_buffer_;
 
-
 bstone::R8g8b8a8Palette vid_vga_palette_;
 VgaBuffer sw_vga_buffer_;
 
 WindowElementsDimensions vid_dimensions_;
 
-SDL_DisplayMode display_mode_;
+SDL_DisplayMode desktop_display_mode_;
 bstone::SdlWindowUPtr sw_window_ = nullptr;
 bstone::SdlRendererUPtr sw_renderer_ = nullptr;
 bstone::SdlPixelFormatUPtr sw_texture_pixel_format_ = nullptr;
@@ -463,7 +462,7 @@ void vid_cfg_fix_window_width()
 	::vid_cfg_fix_window_dimension(
 		::vid_cfg_.width_,
 		::vga_ref_width,
-		::display_mode_.w
+		::desktop_display_mode_.w
 	);
 }
 
@@ -472,7 +471,7 @@ void vid_cfg_fix_window_height()
 	::vid_cfg_fix_window_dimension(
 		::vid_cfg_.height_,
 		::vga_ref_height_4x3,
-		::display_mode_.h
+		::desktop_display_mode_.h
 	);
 }
 
@@ -587,8 +586,8 @@ void vid_calculate_window_elements_dimensions(
 
 CalculateScreenSizeInputParam vid_create_screen_size_param()
 {
-	auto window_width = static_cast<int>(::vid_cfg_.width_);
-	auto window_height = static_cast<int>(::vid_cfg_.height_);
+	auto window_width = static_cast<int>(::vid_cfg_.is_windowed_ ? ::vid_cfg_.width_ : ::desktop_display_mode_.w);
+	auto window_height = static_cast<int>(::vid_cfg_.is_windowed_ ? ::vid_cfg_.height_ : ::desktop_display_mode_.h);
 
 	if (window_width < ::vga_ref_width)
 	{
@@ -1036,7 +1035,7 @@ void vid_get_current_display_mode()
 {
 	::vid_log("Getting desktop display mode.");
 
-	const auto sdl_result = ::SDL_GetDesktopDisplayMode(0, &::display_mode_);
+	const auto sdl_result = ::SDL_GetDesktopDisplayMode(0, &::desktop_display_mode_);
 
 	if (sdl_result != 0)
 	{
@@ -1231,7 +1230,7 @@ void vid_check_vsync()
 	constexpr int duration_tolerance_pct = 25;
 
 	const int expected_duration_ms =
-		(1000 * draw_count) / ::display_mode_.refresh_rate;
+		(1000 * draw_count) / ::desktop_display_mode_.refresh_rate;
 
 	const int min_expected_duration_ms =
 		((100 - duration_tolerance_pct) * expected_duration_ms) / 100;
@@ -3438,18 +3437,13 @@ void hw_renderer_initialize()
 	param.window_.is_visible_ = true;
 #endif // __vita__
 
-	if (::vid_cfg_.is_windowed_)
-	{
-		param.window_.width_ = ::vid_cfg_.width_;
-		param.window_.height_ = ::vid_cfg_.height_;
-	}
-	else
+	param.window_.width_ = ::vid_dimensions_.screen_width_;
+	param.window_.height_ = ::vid_dimensions_.screen_height_;
+
+	if (!::vid_cfg_.is_windowed_)
 	{
 		param.window_.is_borderless_ = true;
 		param.window_.is_fullscreen_desktop_ = true;
-
-		param.window_.width_ = ::display_mode_.w;
-		param.window_.height_ = ::display_mode_.h;
 	}
 
 	param.window_.is_positioned_ = ::vid_cfg_.is_positioned_;
@@ -11822,6 +11816,9 @@ void VL_Startup()
 	::in_handle_events();
 
 	::vid_check_vsync();
+
+
+	vid_window_size_get_list();
 }
 // BBi
 
@@ -13161,6 +13158,113 @@ void vid_cfg_set_defaults()
 VidCfg& vid_cfg_get()
 {
 	return vid_cfg_;
+}
+
+const VidRendererKinds& vid_renderer_kinds_get_available()
+{
+	static const auto result = VidRendererKinds
+	{
+		bstone::RendererKind::auto_detect,
+		bstone::RendererKind::software,
+
+		bstone::RendererKind::ogl_2,
+		bstone::RendererKind::ogl_3_2_core,
+		bstone::RendererKind::ogl_es_2_0,
+	};
+
+	return result;
+}
+
+const VidWindowSizes& vid_window_size_get_list()
+{
+	static auto result = VidWindowSizes{};
+
+	const auto display_index = 0;
+	const auto sdl_mode_count = ::SDL_GetNumDisplayModes(display_index);
+
+	result.clear();
+	result.reserve(sdl_mode_count);
+
+	int sdl_result;
+	auto sdl_mode = SDL_DisplayMode{};
+	auto is_current_added = false;
+	auto is_custom_added = false;
+
+	for (int i = 0; i < sdl_mode_count; ++i)
+	{
+		sdl_result = ::SDL_GetDisplayMode(display_index, i, &sdl_mode);
+
+		if (sdl_result == 0)
+		{
+			const auto is_added = std::any_of(
+				result.cbegin(),
+				result.cend(),
+				[&](const auto& item)
+				{
+					return item.width_ == sdl_mode.w && item.height_ == sdl_mode.h;
+				}
+			);
+
+			if (!is_added)
+			{
+				result.emplace_back();
+				auto& window_size = result.back();
+				window_size.width_ = sdl_mode.w;
+				window_size.height_ = sdl_mode.h;
+
+				//
+				const auto is_current =
+					sdl_mode.w == ::vid_dimensions_.screen_width_ &&
+					sdl_mode.h == ::vid_dimensions_.screen_height_;
+
+				window_size.is_current_ = is_current;
+
+				if (is_current)
+				{
+					is_current_added = true;
+				}
+
+				//
+				const auto is_custom =
+					sdl_mode.w == ::vid_cfg_.width_ &&
+					sdl_mode.h == ::vid_cfg_.height_;
+
+				window_size.is_custom_ = is_custom;
+
+				if (is_custom)
+				{
+					is_custom_added = true;
+				}
+			}
+		}
+	}
+
+	std::sort(
+		result.begin(),
+		result.end(),
+		[](const auto& lhs, const auto& rhs)
+		{
+			if (lhs.width_ != rhs.width_)
+			{
+				return lhs.width_ < rhs.width_;
+			}
+
+			return lhs.height_ < rhs.height_;
+		}
+	);
+
+	if (!is_current_added && !is_custom_added)
+	{
+		result.emplace_back();
+		auto& window_size = result.back();
+		window_size.width_ = ::vid_cfg_.width_;
+		window_size.height_ = ::vid_cfg_.height_;
+
+		window_size.is_current_ = true;
+		window_size.is_custom_ = true;
+	}
+
+	return result;
 }
 
 void vid_draw_ui_sprite(
