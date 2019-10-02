@@ -417,7 +417,7 @@ CP_iteminfo SwitchItems = {MENU_X, 0, 0, 0, 0, 9, {87, -1, 132, 7, 1}};
 
 // BBi
 CP_iteminfo video_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
-CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
+CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
 CP_iteminfo switches2_items = {MENU_X, MENU_Y + 30, 2, 0, 0, 9, {87, -1, 132, 7, 1}};
 // BBi
 
@@ -4722,27 +4722,102 @@ void video_draw_switch(
 
 ///
 void draw_carousel(
+	const int item_index,
 	CP_iteminfo* item_i,
-	CP_itemtype* items)
+	CP_itemtype* items,
+	const std::string& text)
 {
 	const int which = item_i->curpos;
 
-	WindowX = PrintX = item_i->x + item_i->indent;
-	WindowY = PrintY = item_i->y;
+	int item_text_width;
+	int item_text_height;
+
+	VW_MeasurePropString(
+		items[item_index].string.c_str(),
+		&item_text_width,
+		&item_text_height
+	);
+
+	int carousel_text_width;
+	int carousel_text_height;
+
+	VW_MeasurePropString(
+		text.c_str(),
+		&carousel_text_width,
+		&carousel_text_height
+	);
+
+	const auto max_height = item_i->y_spacing;
+
+	const auto arrow_width = 3;
+	const auto arrow_height = 5;
+	const auto arrow_y = item_i->y + (item_index * max_height) + (max_height / 2) - (arrow_height / 2);
+
+	const auto left_arrow_x = item_i->x + item_i->indent + item_text_width + 3;
+
+	const auto arrow_color = static_cast<std::uint8_t>(color_norml[items->active]);
+
+	VL_Plot(left_arrow_x + 0, arrow_y - 0, arrow_color);
+	VL_Vlin(left_arrow_x + 1, arrow_y - 1, 3, arrow_color);
+	VL_Vlin(left_arrow_x + 2, arrow_y - 2, 5, arrow_color);
 
 	WindowW = 320;
 	WindowH = 200;
 
-	for (int i = 0; i < item_i->amount; i++)
-	{
-		SetTextColor(items + i, which == i);
-		ShadowPrint((items + i)->string.c_str(), WindowX, item_i->y + i * item_i->y_spacing);
-	}
+	const auto carousel_text_x = left_arrow_x + arrow_width + 2;
+
+	WindowX = carousel_text_x;
+	WindowY = item_i->y + (item_index * max_height);
+
+	PrintX = WindowX;
+	PrintY = WindowY;
+
+	SetTextColor(items + item_index, item_index == which);
+
+	ShadowPrint(text.c_str(), WindowX, WindowY);
+
+	const auto right_arrow_x = carousel_text_x + carousel_text_width + 2;
+
+	VL_Vlin(right_arrow_x + 0, arrow_y - 2, 5, arrow_color);
+	VL_Vlin(right_arrow_x + 1, arrow_y - 1, 3, arrow_color);
+	VL_Plot(right_arrow_x + 2, arrow_y - 0, arrow_color);
 }
 
 
 int menu_video_mode_renderer_index_;
 VidRendererKinds menu_video_mode_renderer_kinds_;
+
+const std::string& menu_video_mode_renderer_kind_get_string(
+	const bstone::RendererKind renderer_kind)
+{
+	static const auto auto_detect_string = std::string{"AUTO-DETECT"};
+	static const auto software_string = std::string{"SOFTWARE"};
+
+	static const auto ogl_2_string = std::string{"OPENGL 2.0+"};
+	static const auto ogl_3_2_c_string = std::string{"OPENGL 3.2 CORE"};
+	static const auto ogl_es_2_0_string = std::string{"OPENGL ES 2.0"};
+
+	switch (renderer_kind)
+	{
+		case bstone::RendererKind::auto_detect:
+			return auto_detect_string;
+
+		case bstone::RendererKind::software:
+			return software_string;
+
+		case bstone::RendererKind::ogl_2:
+			return ogl_2_string;
+
+		case bstone::RendererKind::ogl_3_2_core:
+			return ogl_3_2_c_string;
+
+		case bstone::RendererKind::ogl_es_2_0:
+			return ogl_es_2_0_string;
+
+		default:
+			Quit("Unsupported renderer kind.");
+	}
+}
 
 void draw_video_mode_descriptions(
 	std::int16_t which)
@@ -4800,7 +4875,7 @@ void video_mode_draw_menu()
 	const auto renderer_kind_it = std::find(
 		menu_video_mode_renderer_kinds_.cbegin(),
 		menu_video_mode_renderer_kinds_.cend(),
-		vid_cfg.renderer_kind_
+		*vid_cfg.renderer_kind_
 	);
 
 	if (renderer_kind_it == menu_video_mode_renderer_kinds_.cend())
@@ -4814,12 +4889,23 @@ void video_mode_draw_menu()
 	}
 }
 
+void video_mode_update_menu()
+{
+	::ClearMScreen();
+	::DrawMenuTitle("VIDEO MODE");
+	::DrawInstructions(IT_STANDARD);
+	::DrawMenu(&video_mode_items, video_mode_menu);
+}
+
 void video_mode_draw_switch(
 	std::int16_t which)
 {
 	std::uint16_t Shape;
 
 	auto& configuration = ::vid_cfg_get();
+
+	const auto renderer_kind = menu_video_mode_renderer_kinds_[menu_video_mode_renderer_index_];
+	const auto& renderer_kind_string = menu_video_mode_renderer_kind_get_string(renderer_kind);
 
 	for (int i = 0; i < video_items.amount; i++)
 	{
@@ -4837,6 +4923,16 @@ void video_mode_draw_switch(
 
 			switch (i)
 			{
+				case 0:
+					draw_carousel(
+						i,
+						&video_mode_items,
+						&video_mode_menu[i],
+						renderer_kind_string
+					);
+
+					continue;
+
 				default:
 					continue;
 			}
@@ -4856,6 +4952,25 @@ void video_menu_mode_renderer_carousel(
 	const bool is_left,
 	const bool is_right)
 {
+	const auto max_index = static_cast<int>(menu_video_mode_renderer_kinds_.size());
+
+	const auto delta = (is_left ? -1 : (is_right ? 1 : 0));
+
+	menu_video_mode_renderer_index_ += delta;
+
+	if (menu_video_mode_renderer_index_ < 0)
+	{
+		menu_video_mode_renderer_index_ = max_index - 1;
+	}
+	else if (menu_video_mode_renderer_index_ >= max_index)
+	{
+		menu_video_mode_renderer_index_ = 0;
+	}
+
+	video_mode_update_menu();
+	video_mode_draw_switch(item_index);
+
+	TicDelay(20);
 }
 
 void video_menu_mode_routine(
@@ -4904,6 +5019,12 @@ void cp_video(
 
 		switch (which)
 		{
+			case mvl_mode:
+				::video_draw_menu();
+				::MenuFadeIn();
+				::WaitKeyUp();
+				break;
+
 		case mvl_widescreen:
 #ifndef __vita__
 			configuration.is_widescreen_ = !configuration.is_widescreen_;
