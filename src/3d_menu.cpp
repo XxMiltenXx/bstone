@@ -417,7 +417,7 @@ CP_iteminfo SwitchItems = {MENU_X, 0, 0, 0, 0, 9, {87, -1, 132, 7, 1}};
 
 // BBi
 CP_iteminfo video_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
-CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 4, 0, 0, 9, {77, -1, 154, 7, 1}};
+CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 6, 0, 0, 9, {77, -1, 154, 7, 1}};
 CP_iteminfo switches2_items = {MENU_X, MENU_Y + 30, 2, 0, 0, 9, {87, -1, 132, 7, 1}};
 // BBi
 
@@ -546,7 +546,9 @@ CP_itemtype CusMenu[] = {
 CP_itemtype video_mode_menu[] =
 {
 	{AT_ENABLED, "RENDERER", nullptr},
+	{AT_ENABLED, "WINDOW SIZE", nullptr},
 	{AT_ENABLED, "IS WINDOWED", nullptr},
+	{AT_ENABLED, "VSYNC", nullptr},
 	{AT_DISABLED, "", nullptr},
 	{AT_ENABLED, "APPLY", nullptr},
 };
@@ -4788,6 +4790,11 @@ void draw_carousel(
 int menu_video_mode_renderer_index_;
 VidRendererKinds menu_video_mode_renderer_kinds_;
 bool menu_video_mode_is_windowed_;
+int menu_video_mode_width_;
+int menu_video_mode_height_;
+int menu_video_mode_sizes_index_;
+VidWindowSizes menu_video_mode_sizes_;
+bool menu_video_mode_is_vsync_;
 
 const std::string& menu_video_mode_renderer_kind_get_string(
 	const bstone::RendererKind renderer_kind)
@@ -4821,15 +4828,23 @@ const std::string& menu_video_mode_renderer_kind_get_string(
 	}
 }
 
+std::string menu_video_mode_size_get_string(
+	const VidWindowSize& size)
+{
+	return std::to_string(size.width_) + " X " + std::to_string(size.height_);
+}
+
 void draw_video_mode_descriptions(
 	std::int16_t which)
 {
 	static const char* instructions[] =
 	{
 		"SELECTS THE RENDERER",
+		"SELECTS WINDOW SIZE",
 		"TOGGLES BETWEEN FAKE FULLSCREEN AND WINDOWED",
+		"TOGGLES VERTICAL SYNCHRONIZATION",
 		"",
-		"APPLIES THE MODE",
+		"APPLIES SETTINGS",
 	};
 
 	::fontnumber = 2;
@@ -4865,33 +4880,65 @@ void video_mode_draw_menu()
 	::DrawMenu(&video_mode_items, video_mode_menu);
 	VW_UpdateScreen();
 
-
-	menu_video_mode_renderer_kinds_ = vid_renderer_kinds_get_available();
-
-	if (menu_video_mode_renderer_kinds_.empty())
-	{
-		::Quit("Empty renderer kind list.");
-	}
-
 	const auto& vid_cfg = vid_cfg_get();
 
-	const auto renderer_kind_it = std::find(
-		menu_video_mode_renderer_kinds_.cbegin(),
-		menu_video_mode_renderer_kinds_.cend(),
-		*vid_cfg.renderer_kind_
-	);
-
-	if (renderer_kind_it == menu_video_mode_renderer_kinds_.cend())
 	{
-		menu_video_mode_renderer_index_ = 0;
-	}
-	else
-	{
-		menu_video_mode_renderer_index_ = static_cast<int>(
-			renderer_kind_it - menu_video_mode_renderer_kinds_.cbegin());
+		menu_video_mode_renderer_kinds_ = vid_renderer_kinds_get_available();
+
+		if (menu_video_mode_renderer_kinds_.empty())
+		{
+			::Quit("Empty renderer kind list.");
+		}
+
+		const auto renderer_kind_it = std::find(
+			menu_video_mode_renderer_kinds_.cbegin(),
+			menu_video_mode_renderer_kinds_.cend(),
+			*vid_cfg.renderer_kind_
+		);
+
+		if (renderer_kind_it == menu_video_mode_renderer_kinds_.cend())
+		{
+			menu_video_mode_renderer_index_ = 0;
+		}
+		else
+		{
+			menu_video_mode_renderer_index_ = static_cast<int>(
+				renderer_kind_it - menu_video_mode_renderer_kinds_.cbegin());
+		}
 	}
 
-	menu_video_mode_is_windowed_ = vid_cfg.is_windowed_;
+	{
+		menu_video_mode_is_windowed_ = vid_cfg.is_windowed_;
+	}
+
+	{
+		menu_video_mode_width_ = vid_cfg.width_;
+		menu_video_mode_height_ = vid_cfg.height_;
+	}
+
+	{
+		menu_video_mode_sizes_index_ = 0;
+		menu_video_mode_sizes_ = vid_window_size_get_list();
+
+		const auto index_it = std::find_if(
+			menu_video_mode_sizes_.cbegin(),
+			menu_video_mode_sizes_.cend(),
+			[](const auto& item)
+			{
+				return item.is_current_;
+			}
+		);
+
+		if (index_it != menu_video_mode_sizes_.cend())
+		{
+			menu_video_mode_sizes_index_ = static_cast<int>(
+				index_it - menu_video_mode_sizes_.cbegin());
+		}
+	}
+
+	{
+		menu_video_mode_is_vsync_ = vid_cfg.is_vsync_;
+	}
 }
 
 void video_mode_update_menu()
@@ -4911,6 +4958,9 @@ void video_mode_draw_switch(
 
 	const auto renderer_kind = menu_video_mode_renderer_kinds_[menu_video_mode_renderer_index_];
 	const auto& renderer_kind_string = menu_video_mode_renderer_kind_get_string(renderer_kind);
+
+	const auto& window_size = menu_video_mode_sizes_[menu_video_mode_sizes_index_];
+	const auto window_size_string = menu_video_mode_size_get_string(window_size);
 
 	for (int i = 0; i < video_mode_items.amount; ++i)
 	{
@@ -4932,14 +4982,32 @@ void video_mode_draw_switch(
 					draw_carousel(
 						i,
 						&video_mode_items,
-						&video_mode_menu[i],
+						video_mode_menu,
 						renderer_kind_string
 					);
 
 					continue;
 
 				case 1:
+					draw_carousel(
+						i,
+						&video_mode_items,
+						video_mode_menu,
+						window_size_string
+					);
+
+					continue;
+
+				case 2:
 					if (menu_video_mode_is_windowed_)
+					{
+						++Shape;
+					}
+
+					break;
+
+				case 3:
+					if (menu_video_mode_is_vsync_)
 					{
 						++Shape;
 					}
@@ -4986,6 +5054,32 @@ void video_menu_mode_renderer_carousel(
 	TicDelay(20);
 }
 
+void video_menu_mode_window_size_carousel(
+	const int item_index,
+	const bool is_left,
+	const bool is_right)
+{
+	const auto max_index = static_cast<int>(menu_video_mode_sizes_.size());
+
+	const auto delta = (is_left ? -1 : (is_right ? 1 : 0));
+
+	menu_video_mode_sizes_index_ += delta;
+
+	if (menu_video_mode_sizes_index_ < 0)
+	{
+		menu_video_mode_sizes_index_ = max_index - 1;
+	}
+	else if (menu_video_mode_sizes_index_ >= max_index)
+	{
+		menu_video_mode_sizes_index_ = 0;
+	}
+
+	video_mode_update_menu();
+	video_mode_draw_switch(item_index);
+
+	TicDelay(20);
+}
+
 void video_menu_mode_routine(
 	const std::int16_t)
 {
@@ -4999,6 +5093,7 @@ void video_menu_mode_routine(
 	auto& configuration = ::vid_cfg_get();
 
 	video_mode_menu[0].carousel_func_ = ::video_menu_mode_renderer_carousel;
+	video_mode_menu[1].carousel_func_ = ::video_menu_mode_window_size_carousel;
 
 	do
 	{
@@ -5006,8 +5101,12 @@ void video_menu_mode_routine(
 
 		switch (which)
 		{
-			case 1:
+			case 2:
 				menu_video_mode_is_windowed_ = !menu_video_mode_is_windowed_;
+				break;
+
+			case 3:
+				menu_video_mode_is_vsync_ = !menu_video_mode_is_vsync_;
 				break;
 
 			default:
