@@ -417,7 +417,7 @@ CP_iteminfo SwitchItems = {MENU_X, 0, 0, 0, 0, 9, {87, -1, 132, 7, 1}};
 
 // BBi
 CP_iteminfo video_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
-CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
+CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 4, 0, 0, 9, {77, -1, 154, 7, 1}};
 CP_iteminfo switches2_items = {MENU_X, MENU_Y + 30, 2, 0, 0, 9, {87, -1, 132, 7, 1}};
 // BBi
 
@@ -546,6 +546,7 @@ CP_itemtype CusMenu[] = {
 CP_itemtype video_mode_menu[] =
 {
 	{AT_ENABLED, "RENDERER", nullptr},
+	{AT_ENABLED, "IS WINDOWED", nullptr},
 	{AT_DISABLED, "", nullptr},
 	{AT_ENABLED, "APPLY", nullptr},
 };
@@ -4786,6 +4787,7 @@ void draw_carousel(
 
 int menu_video_mode_renderer_index_;
 VidRendererKinds menu_video_mode_renderer_kinds_;
+bool menu_video_mode_is_windowed_;
 
 const std::string& menu_video_mode_renderer_kind_get_string(
 	const bstone::RendererKind renderer_kind)
@@ -4825,6 +4827,7 @@ void draw_video_mode_descriptions(
 	static const char* instructions[] =
 	{
 		"SELECTS THE RENDERER",
+		"TOGGLES BETWEEN FAKE FULLSCREEN AND WINDOWED",
 		"",
 		"APPLIES THE MODE",
 	};
@@ -4887,6 +4890,8 @@ void video_mode_draw_menu()
 		menu_video_mode_renderer_index_ = static_cast<int>(
 			renderer_kind_it - menu_video_mode_renderer_kinds_.cbegin());
 	}
+
+	menu_video_mode_is_windowed_ = vid_cfg.is_windowed_;
 }
 
 void video_mode_update_menu()
@@ -4907,13 +4912,13 @@ void video_mode_draw_switch(
 	const auto renderer_kind = menu_video_mode_renderer_kinds_[menu_video_mode_renderer_index_];
 	const auto& renderer_kind_string = menu_video_mode_renderer_kind_get_string(renderer_kind);
 
-	for (int i = 0; i < video_items.amount; i++)
+	for (int i = 0; i < video_mode_items.amount; ++i)
 	{
 		if (video_mode_menu[i].string[0])
 		{
 			Shape = ::C_NOTSELECTEDPIC;
 
-			if (video_items.cursor.on)
+			if (video_mode_items.cursor.on)
 			{
 				if (i == which)
 				{
@@ -4933,13 +4938,21 @@ void video_mode_draw_switch(
 
 					continue;
 
+				case 1:
+					if (menu_video_mode_is_windowed_)
+					{
+						++Shape;
+					}
+
+					break;
+
 				default:
 					continue;
 			}
 
 			::VWB_DrawPic(
-				video_items.x - 16,
-				video_items.y + (i * video_items.y_spacing) - 1,
+				video_mode_items.x - 16,
+				video_mode_items.y + (i * video_mode_items.y_spacing) - 1,
 				Shape);
 		}
 	}
@@ -4993,6 +5006,10 @@ void video_menu_mode_routine(
 
 		switch (which)
 		{
+			case 1:
+				menu_video_mode_is_windowed_ = !menu_video_mode_is_windowed_;
+				break;
+
 			default:
 				break;
 		}
