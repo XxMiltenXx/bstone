@@ -39,6 +39,7 @@ Free Software Foundation, Inc.,
 #include "jm_lzh.h"
 #include "jm_tp.h"
 #include "bstone_scope_guard.h"
+#include "bstone_renderer_limits.h"
 
 
 #define GAME_DESCRIPTION_LEN (31)
@@ -417,7 +418,7 @@ CP_iteminfo SwitchItems = {MENU_X, 0, 0, 0, 0, 9, {87, -1, 132, 7, 1}};
 
 // BBi
 CP_iteminfo video_items = {MENU_X, MENU_Y + 30, 3, 0, 0, 9, {77, -1, 154, 7, 1}};
-CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 6, 0, 0, 9, {77, -1, 154, 7, 1}};
+CP_iteminfo video_mode_items = {MENU_X, MENU_Y + 10, 8, 0, 0, 9, {77, -1, 154, 7, 1}};
 CP_iteminfo switches2_items = {MENU_X, MENU_Y + 30, 2, 0, 0, 9, {87, -1, 132, 7, 1}};
 // BBi
 
@@ -549,6 +550,8 @@ CP_itemtype video_mode_menu[] =
 	{AT_ENABLED, "WINDOW SIZE", nullptr},
 	{AT_ENABLED, "IS WINDOWED", nullptr},
 	{AT_ENABLED, "VSYNC", nullptr},
+	{AT_ENABLED, "ANTI-ALIASING KIND", nullptr},
+	{AT_ENABLED, "ANTI-ALIASING FACTOR", nullptr},
 	{AT_DISABLED, "", nullptr},
 	{AT_ENABLED, "APPLY", nullptr},
 };
@@ -4795,6 +4798,34 @@ int menu_video_mode_height_;
 int menu_video_mode_sizes_index_;
 VidWindowSizes menu_video_mode_sizes_;
 bool menu_video_mode_is_vsync_;
+bstone::RendererAaKind menu_video_mode_aa_kind_;
+int menu_video_mode_aa_factor_;
+
+int menu_video_mode_aa_factor_adjust(
+	const int aa_factor)
+{
+	auto current_aa_factor = aa_factor;
+
+	if (current_aa_factor < bstone::RendererLimits::aa_min)
+	{
+		current_aa_factor = bstone::RendererLimits::aa_min;
+	}
+	else if (current_aa_factor > bstone::RendererLimits::aa_max)
+	{
+		current_aa_factor = bstone::RendererLimits::aa_max;
+	}
+
+	auto current_pow = 0;
+
+	while ((1 << current_pow) < current_aa_factor)
+	{
+		++current_pow;
+	}
+
+	current_aa_factor = 1 << current_pow;
+
+	return current_aa_factor;
+}
 
 const std::string& menu_video_mode_renderer_kind_get_string(
 	const bstone::RendererKind renderer_kind)
@@ -4834,6 +4865,32 @@ std::string menu_video_mode_size_get_string(
 	return std::to_string(size.width_) + " X " + std::to_string(size.height_);
 }
 
+const std::string& menu_video_mode_aa_kind_get_string(
+	const bstone::RendererAaKind aa_kind)
+{
+	static const auto none_string = std::string{"NONE"};
+	static const auto msaa_string = std::string{"MSAA"};
+
+	switch (aa_kind)
+	{
+		case bstone::RendererAaKind::none:
+			return none_string;
+
+		case bstone::RendererAaKind::ms:
+			return msaa_string;
+
+		default:
+			Quit("Unsupported AA kind.");
+	}
+}
+
+std::string menu_video_mode_aa_factor_get_string(
+	const int aa_factor)
+{
+	return std::to_string(aa_factor);
+}
+
+
 void draw_video_mode_descriptions(
 	std::int16_t which)
 {
@@ -4843,6 +4900,8 @@ void draw_video_mode_descriptions(
 		"SELECTS WINDOW SIZE",
 		"TOGGLES BETWEEN FAKE FULLSCREEN AND WINDOWED",
 		"TOGGLES VERTICAL SYNCHRONIZATION",
+		"SELECTS ANTI-ALIASING KIND",
+		"SELECTS ANTI-ALIASING FACTOR",
 		"",
 		"APPLIES SETTINGS",
 	};
@@ -4939,6 +4998,11 @@ void video_mode_draw_menu()
 	{
 		menu_video_mode_is_vsync_ = vid_cfg.is_vsync_;
 	}
+
+	{
+		menu_video_mode_aa_kind_ = vid_cfg.hw_aa_kind_;
+		menu_video_mode_aa_factor_ = menu_video_mode_aa_factor_adjust(vid_cfg.hw_aa_value_);
+	}
 }
 
 void video_mode_update_menu()
@@ -4961,6 +5025,9 @@ void video_mode_draw_switch(
 
 	const auto& window_size = menu_video_mode_sizes_[menu_video_mode_sizes_index_];
 	const auto window_size_string = menu_video_mode_size_get_string(window_size);
+
+	const auto aa_kind_string = menu_video_mode_aa_kind_get_string(menu_video_mode_aa_kind_);
+	const auto aa_factor_string = menu_video_mode_aa_factor_get_string(menu_video_mode_aa_factor_);
 
 	for (int i = 0; i < video_mode_items.amount; ++i)
 	{
@@ -5013,6 +5080,26 @@ void video_mode_draw_switch(
 					}
 
 					break;
+
+				case 4:
+					draw_carousel(
+						i,
+						&video_mode_items,
+						video_mode_menu,
+						aa_kind_string
+					);
+
+					continue;
+
+				case 5:
+					draw_carousel(
+						i,
+						&video_mode_items,
+						video_mode_menu,
+						aa_factor_string
+					);
+
+					continue;
 
 				default:
 					continue;
@@ -5080,6 +5167,73 @@ void video_menu_mode_window_size_carousel(
 	TicDelay(20);
 }
 
+void video_menu_mode_window_aa_kind_carousel(
+	const int item_index,
+	const bool is_left,
+	const bool is_right)
+{
+	switch (menu_video_mode_aa_kind_)
+	{
+		case bstone::RendererAaKind::none:
+			if (is_left)
+			{
+				menu_video_mode_aa_kind_ = bstone::RendererAaKind::ms;
+			}
+			else if (is_right)
+			{
+				menu_video_mode_aa_kind_ = bstone::RendererAaKind::ms;
+			}
+
+			break;
+
+		case bstone::RendererAaKind::ms:
+			if (is_left)
+			{
+				menu_video_mode_aa_kind_ = bstone::RendererAaKind::none;
+			}
+			else if (is_right)
+			{
+				menu_video_mode_aa_kind_ = bstone::RendererAaKind::none;
+			}
+
+			break;
+	}
+
+	video_mode_update_menu();
+	video_mode_draw_switch(item_index);
+
+	TicDelay(20);
+}
+
+void video_menu_mode_window_aa_factor_carousel(
+	const int item_index,
+	const bool is_left,
+	const bool is_right)
+{
+	if (is_left)
+	{
+		menu_video_mode_aa_factor_ /= 2;
+	}
+	else if (is_right)
+	{
+		menu_video_mode_aa_factor_ *= 2;
+	}
+
+	if (menu_video_mode_aa_factor_ < bstone::RendererLimits::aa_min)
+	{
+		menu_video_mode_aa_factor_ = bstone::RendererLimits::aa_max;
+	}
+	else if (menu_video_mode_aa_factor_ > bstone::RendererLimits::aa_max)
+	{
+		menu_video_mode_aa_factor_ = bstone::RendererLimits::aa_min;
+	}
+
+	video_mode_update_menu();
+	video_mode_draw_switch(item_index);
+
+	TicDelay(20);
+}
+
 void video_menu_mode_routine(
 	const std::int16_t)
 {
@@ -5094,6 +5248,9 @@ void video_menu_mode_routine(
 
 	video_mode_menu[0].carousel_func_ = ::video_menu_mode_renderer_carousel;
 	video_mode_menu[1].carousel_func_ = ::video_menu_mode_window_size_carousel;
+
+	video_mode_menu[4].carousel_func_ = ::video_menu_mode_window_aa_kind_carousel;
+	video_mode_menu[5].carousel_func_ = ::video_menu_mode_window_aa_factor_carousel;
 
 	do
 	{
